@@ -1,0 +1,8 @@
+# 数据监控骨架 · Python 依赖
+# 装法：python -m pip install -r requirements.txt
+# 版本下限按 2026-11 实测环境（Python 3.13）给，不锁死补丁号，免得同事装不上。
+
+openpyxl>=3.1          # 写 01_日数据监控.xlsx
+requests>=2.28         # 平台取数 / 凭证体检
+websocket-client>=1.6  # 读浏览器 CDP 里的 cookie（import websocket）
+PyMySQL>=1.0           # 库内数据直连导出

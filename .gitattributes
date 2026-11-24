@@ -1,0 +1,4 @@
+# Windows 批处理必须保持 CRLF —— 被换成 LF 后双击会直接闪退，
+# 而且不报错，只表现为「双击没反应」。模板里的 bat 另外还是 GBK 编码。
+*.bat text eol=crlf
+*.cmd text eol=crlf

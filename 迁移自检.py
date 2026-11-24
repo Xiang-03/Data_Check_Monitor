@@ -11,17 +11,20 @@
       5 契约全量       四张 CSV 的列名 / 日期 / 金额 / 数据行
       6 判定自测       监控内核.自测_判定（75 项）
       7 残留客户名     监控内核.自检（换客户后最容易漏的一步）
-      8 公共代码       同步.py --check（版本 + 24 文件 md5）
+      8 公共代码       同步.py --check（版本 + 25 文件 md5）
 
 它不做什么
     · 不取数、不连平台、不写库、不写任何文件
     · 不跑端到端对账（那会真实取数）—— 最后只把命令打出来，由人决定什么时候跑
 
 用法
-    python 迁移自检.py                      # 默认：当前所在项目，否则客户A
-    python 迁移自检.py --project 客户B
-    python 迁移自检.py --all                # 两个项目都查
+    python 迁移自检.py                      # 默认：当前所在项目，否则 目标.json 里的第一个
+    python 迁移自检.py --project 05 客户名   # 指定项目（名字或绝对路径）
+    python 迁移自检.py --all                # 目标.json 里登记的全部项目
     python 迁移自检.py --quiet              # 只打结论
+
+    ★ 刚克隆下来、还没建过客户项目时会提示「还没有登记任何项目」并退出 0，
+      那是正常状态，不是失败。先跑 自检_骨架.py。
 
 退出码
     0 全部通过　1 有失败　2 项目目录不存在
@@ -167,13 +170,17 @@ def pick_default():
     for name, p in PROJECTS:
         if cwd == os.path.normcase(p) or cwd.startswith(os.path.normcase(p) + os.sep):
             return [(name, p)]
+    if not PROJECTS:
+        # 刚克隆下来的骨架就是这样：目标.json 是空的，一个项目都没登记。
+        # 以前这里直接 PROJECTS[0]，新同事第一条命令就吃 IndexError。
+        return []
     return [PROJECTS[0]]
 
 
 def main():
     ap = argparse.ArgumentParser(description="迁移自检（只读）")
-    ap.add_argument("--project", help="客户A / 客户B / 或项目目录绝对路径")
-    ap.add_argument("--all", action="store_true", help="两个项目都查")
+    ap.add_argument("--project", help="项目名，或项目目录的绝对路径")
+    ap.add_argument("--all", action="store_true", help="检查 目标.json 里登记的全部项目")
     ap.add_argument("--quiet", action="store_true", help="只打结论")
     a = ap.parse_args()
 
@@ -184,6 +191,14 @@ def main():
         targets = hit or [("自定义", os.path.abspath(a.project))]
     else:
         targets = pick_default()
+
+    if not targets:
+        _rule()
+        print("  还没有登记任何项目（_公共/目标.json 的 projects 是空的）。")
+        print("  骨架清单：先跑  python 自检_骨架.py  验证环境，")
+        print("            再跑  python 新建客户.py \"05 客户名\" --port 9242,9243")
+        _rule()
+        return 0
 
     _rule()
     print("  迁移自检　%s" % datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

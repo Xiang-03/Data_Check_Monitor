@@ -32,7 +32,8 @@ r"""契约.py —— 适配层产出格式的自检
 用法
     from 监控内核 import 契约
     契约.check_platform(PLAT_CSV)          # 平台取数.py 跑完
-    契约.check_lib(STD_CSV, "标准投")       # 库内导出.py 跑完
+    契约.check_std(STD_CSV)                # 库内导出.py 跑完（标准投）
+    契约.check_sim(SIM_CSV)                # 同上（简单投，本项目没有就跳过）
     契约.check_ingest(INGEST_CSV)          # 同上
     契约.check_all()                       # 全量体检，返回 (ok, problems)
     契约.check_all(expect_shops=CFG.SHOPS) # 外加店铺名校验（推荐）
@@ -40,11 +41,41 @@ r"""契约.py —— 适配层产出格式的自检
     命令行：python -m 监控内核.契约
             python -m 监控内核.契约 --shops 店A,店B
             或在 每日对账.py 里被调用
+
+不在校验范围内的 CSV（只告警，不算失败）
+    数据/ 下除了这四张表，还有 凭证状态.csv / 凭证体检.csv 两个运行时状态文件。
+    其它任何 *.csv 都会被点名告警：契约不认识它，看板也不会读它 ——
+    换句话说，客户如果自己加了第三路金额，那一路是「没人校验、也没人展示」的。
+    这里刻意只告警不判失败：多一个报表 CSV 不该把整次对账拦下来。
 """
 import csv
 import os
 
 from .路径 import PLAT_CSV, INGEST_CSV, STD_CSV, SIM_CSV
+
+
+DATA_ROOT = os.path.dirname(os.path.dirname(PLAT_CSV))
+
+# 契约认识的 CSV：四张业务表 + 两个运行时状态（凭证刷新 / 凭证体检 写的）
+KNOWN_CSV_NAMES = {os.path.basename(p) for p in (PLAT_CSV, STD_CSV, SIM_CSV, INGEST_CSV)}
+KNOWN_CSV_NAMES |= {"凭证状态.csv", "凭证体检.csv"}
+
+# 这些目录里放的是历史副本 / 产物 / 浏览器 profile，不该被当成「第三路数据」
+SKIP_DIR_NAMES = {"产出", "_browser", "logs", "_备份", "_旧"}
+
+
+def scan_unknown_csv():
+    """扫描 数据/ 下契约不认识的 CSV，返回绝对路径列表。找不到目录就返回空。"""
+    out = []
+    if not os.path.isdir(DATA_ROOT):
+        return out
+    for dp, dns, fns in os.walk(DATA_ROOT):
+        dns[:] = [d for d in dns if not d.startswith("_") and d not in SKIP_DIR_NAMES]
+        for fn in sorted(fns):
+            if fn.lower().endswith(".csv") and fn not in KNOWN_CSV_NAMES:
+                out.append(os.path.join(dp, fn))
+    return out
+
 
 
 class 契约错误(Exception):
@@ -265,6 +296,16 @@ def check_all(verbose=False, expect_shops=None):
             problems.append(f"[{label}] 读不了 {path}：{e}")
             if verbose:
                 print(f"  x {label:<12} {e}")
+
+    # 契约不认识的 CSV：点名告警，但不判失败。
+    # 以前这些文件连提都不提，「对账通过」看起来一切正常，实际那一路没人管。
+    unknown = scan_unknown_csv()
+    for path in unknown:
+        rel = os.path.relpath(path, DATA_ROOT).replace("\\", "/")
+        print(f"  ! 数据/{rel} 不在契约范围内 —— 它不会被校验，也不会进看板")
+    if unknown:
+        print("    要接第三路金额，请先改 _公共/监控内核/契约.py 与 "
+              "_公共/业务/每日对账.py，别只扔一个 CSV 进来。")
 
     if expect_shops:
         # 只拿库内三张表来比：平台日汇总的 shop_name 是脚本按配置写进去的，

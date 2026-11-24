@@ -60,6 +60,7 @@ ACC_MIN_FILL = CFG.ACC_MIN_FILL
 ACC_MIN_BASE = CFG.ACC_MIN_BASE
 INGEST_FRESH_MIN = CFG.INGEST_FRESH_MIN
 RA_ACTIVE_MIN = CFG.RA_ACTIVE_MIN
+INGEST_STALE_H = CFG.INGEST_STALE_H
 
 # 每个店铺占 4 列：平台 / 标准投 / 简单投 / 差额
 CPR = 4
@@ -644,12 +645,23 @@ def main(month=None):
     ingest = load_ingest(SHOPS)
 
     # 导出那一刻 RPA 是否正在重灌（用入库时间文件的 mtime 当导出时刻）
+    #
+    # ★ 必须带过期兜底（2026-11-24 修）：入库时间.csv 一旦停更，mtime 冻结在
+    #   最后那次导出，而文件里的 max(last_created) 也同时冻结 —— 两者差值恒定，
+    #   ra_active 会永远为真，看板把每天都标成「库内采集中」（偏乐观、不算报警），
+    #   而对账日志那边可能已经报「报警」。同一个数据两个结论，人只看 Excel。
+    #   每日对账.py 有这道兜底，这里以前漏了。
     ra_active = False
     if ingest:
         try:
             exported_at = datetime.datetime.fromtimestamp(os.path.getmtime(INGEST_CSV))
+            too_old = (datetime.datetime.now() - exported_at) >= \
+                datetime.timedelta(hours=INGEST_STALE_H)
+            if too_old:
+                exported_at = None          # 文件已失效，mtime 不再代表导出时刻
             ra_last = max(ingest.values())
-            ra_active = (exported_at - ra_last) < datetime.timedelta(minutes=RA_ACTIVE_MIN)
+            ra_active = bool(exported_at) and \
+                (exported_at - ra_last) < datetime.timedelta(minutes=RA_ACTIVE_MIN)
         except (OSError, ValueError):
             ra_active = False
     if not plat and not std and not sim:

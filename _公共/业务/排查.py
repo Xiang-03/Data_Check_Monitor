@@ -16,6 +16,12 @@
     [5] 诊断       按规则给结论 + 下一步动作
 
 只读不改任何文件。
+
+判定口径
+    [2] 段的「判定」列**调用 监控内核/判定.py**，不再在这里内联一套。
+    以前这里自己算 PASS/报警，不看「平台陈旧 / 库内采集中 / RPA 重灌」，
+    于是同一天在排查里看到「报警」、在看板里看到「库内采集中」，
+    两边都像真的，人只能靠猜。现在参数也按 每日对账.py 的口径组装。
 """
 import csv
 import datetime
@@ -26,22 +32,21 @@ from collections import defaultdict
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:
+except Exception:                                        # noqa: BLE001
     pass
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-PLAT_CSV = os.path.join(BASE, "数据", "平台数据", "日汇总.csv")
-STD_CSV = os.path.join(BASE, "数据", "标准投库内数据", "各子店铺每月每日数据", "各子店铺每月每日数据.csv")
-SIM_CSV = os.path.join(BASE, "数据", "简单投库内数据", "各子店铺每月每日数据", "各子店铺每月每日数据.csv")
-
-# 店铺与阈值都从 项目配置.ini 读。
-# ★ 原来这里是写死的客户A四家店（客户A / 子账号A / CustomerA 9a / 子账号B），
-#   拷到别的项目就成了「查谁都没有」—— 目录名一样、跑起来不报错、结果全空。
 sys.path.insert(0, BASE)
+
 import 项目配置 as CFG  # noqa: E402
+from 监控内核 import 判定 as JDG  # noqa: E402
+from 监控内核.基础 import parse_ts  # noqa: E402
+from 监控内核.数据 import acc_median_before, load_ingest  # noqa: E402
+from 监控内核.路径 import INGEST_CSV, PLAT_CSV, SIM_CSV, STD_CSV  # noqa: E402
 
 SHOPS = CFG.SHOPS
 TOL_ABS, TOL_REL = CFG.ABS_TOL, CFG.REL_TOL
+
 
 # ---------------------------------------------------------------- 小工具
 def w(s):
@@ -182,6 +187,33 @@ def main():
     plat = load_plat()
     std = load_lib(STD_CSV)
     sim = load_lib(SIM_CSV)
+    ingest = load_ingest(SHOPS)
+    run_day = datetime.date.today()
+
+    # RPA 是否正在重灌 —— 与 每日对账.py 同一判据：拿「导出时刻」跟库内最后写入比。
+    # 本脚本没有本次导出的真实时刻，只能退回看 入库时间.csv 的 mtime；
+    # 但过期（超过 [对账阈值] ingest_stale_h）就当作没有信号 ——
+    # 否则文件停更后两者差值恒定，ra_active 永远为真，所有差额都不判。
+    ra_active = False
+    try:
+        mt = datetime.datetime.fromtimestamp(os.path.getmtime(INGEST_CSV))
+        fresh_file = (datetime.datetime.now() - mt) < \
+            datetime.timedelta(hours=CFG.INGEST_STALE_H)
+        ra_last = max(ingest.values()) if ingest else None
+        ra_active = bool(ra_last and fresh_file) and \
+            (mt - ra_last) < datetime.timedelta(minutes=CFG.RA_ACTIVE_MIN)
+    except (OSError, ValueError):
+        ra_active = False
+
+    # 每店每日的账户数（只数标准投，和 每日对账.py 的 n_acc 同口径）
+    acc_cnt = defaultdict(int)
+    for (_s, _d, _a) in std:
+        acc_cnt[(_s, _d)] += 1
+
+    def series_of(shop):
+        """[(日期, 账户数)]，升序 —— 给「采集中」的中位数基准用。"""
+        return sorted((d, n) for (s2, d), n in acc_cnt.items() if s2 == shop)
+
     shops = [s for s in SHOPS if not want_shop or want_shop.lower() in s.lower()]
     if not shops:
         print(f"没有名字里带「{want_shop}」的店铺，可选：{'、'.join(SHOPS)}")
@@ -227,25 +259,35 @@ def main():
         has_sim = mn > 0 or any(k[0] == s and k[1] == target for k in sim)
         lib = sv + mv
 
-        if pv is None:
-            verdict, diff = "平台无数据", None
-        elif pv == 0 and lib == 0:
-            verdict, diff = "无消耗", 0.0
-        elif lib == 0:
-            verdict, diff = "库内未导", pv
-        else:
-            diff = pv - lib
-            verdict = "PASS" if abs(diff) <= tol_of(pv) else "报警"
+        # 平台这条记录必须在「该日结束之后」取过，否则是当天日末前抓的半成品
+        # （与 每日对账.py 同口径：fetched_at 的日期 <= 统计日期 → 不可信）
+        when = parse_ts(p["fetched_at"]) if p else None
+        stale = when is None or when.date() <= datetime.date.fromisoformat(target)
+        last_in = ingest.get((s, target))
+        fresh = bool(last_in) and (datetime.datetime.now() - last_in) < \
+            datetime.timedelta(minutes=CFG.INGEST_FRESH_MIN)
+
+        status, diff = JDG.judge(
+            pv, lib, target, run_day,
+            stale=stale, n_acc=sn, base=acc_median_before(series_of(s), target),
+            fresh=fresh, ra_active=ra_active,
+            tol_abs=TOL_ABS, tol_rel=TOL_REL,
+            acc_ratio=CFG.ACC_MIN_RATIO, acc_fill=CFG.ACC_MIN_FILL,
+            acc_base=CFG.ACC_MIN_BASE)
+        if status == JDG.通过:
+            status = "PASS"          # 沿用旧名，下面几段判断都按这个名字走
+        elif status == JDG.待取数:
+            status = "平台无数据"      # 保持原有文案，便于对照历史排查记录
 
         rows.append(dict(shop=s, plat=pv, std=sv, std_n=sn, sim=mv if has_sim else None,
-                         sim_n=mn, lib=lib, diff=diff, verdict=verdict))
+                         sim_n=mn, lib=lib, diff=diff, verdict=status))
 
         print(pad(s, W["shop"]) + pad(money(pv), W["plat"], True)
               + pad(f"{sv:,.2f}({sn}户)", W["std"], True)
               + pad((f"{mv:,.2f}({mn}户)" if has_sim else "—"), W["sim"], True)
               + pad(money(lib), W["lib"], True)
               + pad(("-" if diff is None else format(diff, "+,.2f")), W["diff"], True)
-              + "  " + verdict)
+              + "  " + status)
 
     # ---- [3] 账户明细
     bad = [r for r in rows if r["verdict"] == "报警"]

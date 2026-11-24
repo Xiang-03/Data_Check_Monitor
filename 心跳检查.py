@@ -30,8 +30,8 @@ r"""
 
 计划任务（本机 schtasks 被黑名单拦，只能 GUI 建）
     时间   16:00（15:30 那趟通常 5 分钟内跑完，留 25 分钟余量）
-    程序   C:\Users\1data\AppData\Local\Programs\Python\Python313\python.exe
-    参数   "D:\01_项目文档\心跳检查.py" --all
+    程序   <Python 安装目录>\python.exe        # 用 where python 查
+    参数   "<放骨架的那个目录>\心跳检查.py" --all
     注意   用 python.exe 而不是 pythonw.exe —— 出问题时能在任务历史里看到输出
 """
 import argparse

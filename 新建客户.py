@@ -43,9 +43,9 @@ TEMPLATES = os.path.join(ROOT, "模板")
 TARGETS = os.path.join(PUBLIC, "目标.json")
 SYNC = os.path.join(PUBLIC, "同步.py")
 
-# 平台/产品两级，和 监控内核/路径.py 的 PLATFORM + JUGUANG_DIR 保持一致。
-# ★ 换平台不只是改这里：路径.py 里 PLATFORM 与 聚光 目录名都写死了，
-#   要按 说明文档/04_接新平台清单.md 整棵换。本脚本只负责「同平台新客户」。
+# 平台/产品两级。注意：路径.py 运行时是读 项目配置.ini 的 [平台] 段，
+# 不是用这里的值；这两个常量只决定「本脚本生成哪一套目录与 ini」。
+# ★ 换平台要按 说明文档/04_接新平台清单.md 整棵换。本脚本只负责「同平台新客户」。
 PLATFORM_DIR = "小红书"
 PRODUCT = "聚光"
 

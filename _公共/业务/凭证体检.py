@@ -8,9 +8,15 @@
 
 做什么：
     1. 对 平台数据/curl_*.txt 逐个发一次最轻量的探测请求（role_list，无参数、无数据量）
-    2. 结果追加到 平台数据/凭证状态.csv：检查时间 / 文件 / 状态 / HTTP / 说明
+    2. 结果追加到 平台数据/凭证体检.csv：检查时间 / 文件 / 状态 / HTTP / 说明
     3. 若某个文件第一次被判失效，记下「上次有效时间」，算出这次存活了多久
     4. 打印汇总，失效的会显式提醒「请重新导出」
+
+    为什么不写 凭证状态.csv（2026-11-24 修）：
+      那个文件是 凭证刷新.py 的，表头是 session/login_expire/token_expire，
+      登录态.py 靠它推算 sso 剩余寿命。两个脚本写同一个文件、表头不同，
+      本脚本追加一行就会把表头对不上，凭证刷新.py 下次启动便整份改名成
+      _旧.csv —— 登录态提醒从此没有历史，静默失效。各写各的文件。
 
 为什么不能直接读出过期时间：
     Copy as cURL 只带 name=value，不带 cookie 的 Expires 属性。
@@ -28,7 +34,7 @@ import requests
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE, "数据", "平台数据")
-STATUS_CSV = os.path.join(DATA_DIR, "凭证状态.csv")
+STATUS_CSV = os.path.join(DATA_DIR, "凭证体检.csv")
 PROBE = "https://mcc.xiaohongshu.com/api/mcc/organization_v2/role_list"
 
 
@@ -131,7 +137,7 @@ def main():
         for fn, st, msg in bad:
             print(f"    {fn}  ← {msg}")
         return 2
-    print(f"√ 全部 {len(files)} 份凭证有效（记录已追加到 凭证状态.csv）")
+    print(f"√ 全部 {len(files)} 份凭证有效（记录已追加到 凭证体检.csv）")
     return 0
 
 

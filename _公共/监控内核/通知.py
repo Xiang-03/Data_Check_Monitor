@@ -99,10 +99,11 @@ def _wecom_prefix():
     直接调 wecom-cli（无扩展名的 sh 脚本）在 Windows 下跑不通，
     调 .cmd 又会被某些环境拦，所以直接 node + wecom.js 最稳。
     """
-    roots = [
-        os.path.expandvars(r"%USERPROFILE%\.workbuddy\binaries\node"),
-        r"C:\Users\1data\.workbuddy\binaries\node",
-    ]
+    roots = [os.path.expandvars(r"%USERPROFILE%\.workbuddy\binaries\node")]
+    # 装到别处时用这个环境变量指过去，别在公共代码里写死某个用户名下的路径
+    env_root = os.environ.get("WECOM_CLI_ROOT", "").strip()
+    if env_root:
+        roots.append(os.path.expandvars(env_root))
     for root in roots:
         js = os.path.join(root, "cli-connector-packages", "node_modules",
                           "@wecom", "cli", "bin", "wecom.js")

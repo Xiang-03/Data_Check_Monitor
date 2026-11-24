@@ -84,6 +84,18 @@ def _sec(name):
         f"    {INI}\n    {PLAT_INI}")
 
 
+def _sec_path(name):
+    """这个段实际写在哪个文件里。
+
+    报错要指对文件：[平台账号] 在 平台/<site>/<product>/ 的 ini 里，
+    以前一律报「项目配置.ini 的 [平台账号]」，人照着去找根本找不到。
+    """
+    for cp, path in _SOURCES:
+        if cp.has_section(name):
+            return path
+    return INI
+
+
 def _req(sec, key):
     s = _sec(sec)
     if not s.get(key, "").strip():
@@ -129,19 +141,20 @@ for _k, _v in _ACC_SEC.items():
     _parts = [x.strip() for x in _v.split("|")]
     if len(_parts) != 2:
         raise 配置错误(
-            f"{INI} 的 [平台账号] 里「{_k}」格式应为：组织码 | 分组名\n"
+            f"{_sec_path('平台账号')} 的 [平台账号] 里「{_k}」格式应为：组织码 | 分组名\n"
             f"  现在是：{_v}")
     _org, _grp = _parts
     if not _org.isdigit():
         raise 配置错误(
-            f"{INI} 的 [平台账号] 里「{_k}」的组织码必须是纯数字，现在是「{_org}」。\n"
+            f"{_sec_path('平台账号')} 的 [平台账号] 里「{_k}」的组织码必须是纯数字，"
+            f"现在是「{_org}」。\n"
             "  注意别写成科学计数法或被 Excel 改过。")
     ACCOUNTS[_k] = (_org, _grp)
 
 _缺 = [s for s in SHOPS if s not in ACCOUNTS]
 if _缺:
     raise 配置错误(
-        f"{INI} 的 [平台账号] 里没有这些店铺：{'、'.join(_缺)}\n"
+        f"{_sec_path('平台账号')} 的 [平台账号] 里没有这些店铺：{'、'.join(_缺)}\n"
         f"  [店铺] list 写的店铺，每一个都要在 [平台账号] 里有对应组织码。")
 
 # 平台取数的三元组，顺序跟 SHOPS 一致

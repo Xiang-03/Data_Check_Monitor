@@ -30,7 +30,8 @@ from 监控内核.判定 import (  # noqa: E402
 TODAY = datetime.date(2026, 11, 17)
 YDAY = datetime.date(2026, 11, 16)
 
-# 客户A实测参数（= 项目配置.ini 的 [对账阈值]）
+# 模板默认阈值（= 模板/项目配置.ini 的 [对账阈值]；各客户可自行调整）。
+# 断言只用这组默认值验判定逻辑本身，不依赖任何具体客户的真实参数。
 P = dict(tol_abs=10.0, tol_rel=0.0001,
          acc_ratio=0.7, acc_fill=0.85, acc_base=5)
 

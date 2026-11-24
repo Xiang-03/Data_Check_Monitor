@@ -9,7 +9,8 @@
 
 做的事情
     1. 备份：整本工作簿复制成 01_日数据监控_备份.xlsx（只留这一份，旧的多份自动删掉）
-    2. 重建「日监控」sheet：一行一天 × 4 个店铺（平台 / 标准投 / 简单投 / 差额），自动判定
+    2. 重建「日监控」sheet：一行一天 × N 个店铺（每个店铺 4 列：平台 / 标准投 /
+       简单投 / 差额），N 来自 项目配置.ini 的 [店铺] list，不写死，自动判定
     3. 其它 sheet（若有，如账户核对明细）完全不动
 
 用法
@@ -269,7 +270,7 @@ def build(ws, month, plat, std, sim, today, acc=None, ingest=None,
     widths = {"A": 12, "B": 6.5,
               get_column_letter(COL_JUDGE): 14,
               get_column_letter(COL_NOTE): 22}
-    for i in range(4):
+    for i in range(len(SHOPS)):                   # 按店铺数，不写死 4
         b = COL_FIRST + i * CPR
         widths[get_column_letter(b)] = 12.5      # 平台
         widths[get_column_letter(b + 1)] = 12.5  # 标准投
@@ -458,7 +459,7 @@ def build(ws, month, plat, std, sim, today, acc=None, ingest=None,
         stat[ds] = (day_stat, notes)
 
     # 分组分隔线（放在逐日填充之后，避免被单元格样式覆盖）
-    for i in range(4):
+    for i in range(len(SHOPS)):                  # 按店铺数，不写死 4
         c = COL_FIRST + i * CPR + 3
         for row in ws.iter_rows(min_row=5, max_row=r_last, min_col=c, max_col=c):
             for cell in row:
@@ -470,7 +471,7 @@ def build(ws, month, plat, std, sim, today, acc=None, ingest=None,
     style(ws.cell(row=r_total, column=1, value=f"{m} 月累计"), size=10.5, bold=True,
           color="FFFFFF", fill=C_GROUP, h="center")
     plat_days = sorted({d for (_s, d) in plat if d < today.isoformat()})
-    for i in range(4):
+    for i in range(len(SHOPS)):                  # 按店铺数，不写死 4
         b = COL_FIRST + i * CPR
         for j in range(3):
             col = get_column_letter(b + j)
@@ -694,5 +695,63 @@ def main(month=None):
     return 0
 
 
+def selftest():
+    """表结构自测：店铺数变化时，不能有内容写到「判定 / 备注」列以外。
+
+    为什么要有这个自测
+        2026-11-24 之前，宽度、分组分隔线、月累计三处都写死 `range(4)`，
+        而 COL_JUDGE 是按 len(SHOPS) 算的。店铺数 < 4 时（模板默认就是 2 家），
+        月累计的 SUM 公式会盖掉「判定」「备注」两列 —— Excel 不报错，只是数字不对。
+        这正是本骨架最想挡住的那类失效，所以留成可回归的自测，而不是只改一次。
+
+        用**本项目实际的店铺数**建一张空表（build 支持传空数据），检查：
+          ① 任何有值的单元格都不能越过 NCOL
+          ② 月累计行的判定列必须是文案，不能是 SUM
+        接新客户后（尤其店数不是 4）跑一次 `python 写入日监控.py --selftest`。
+    """
+    month = "2026-11"
+    today = datetime.date(2026, 11, 24)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "日监控"
+    build(ws, month, {}, {}, {}, today)
+
+    n = calendar.monthrange(2026, 11)[1]
+    r_total = 7 + n - 1 + 2
+    bad = []
+
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value is not None and cell.column > NCOL:
+                bad.append(f"越过 NCOL={NCOL}：R{cell.row}C{cell.column} = "
+                           f"{str(cell.value)[:40]}")
+
+    judge_total = ws.cell(row=r_total, column=COL_JUDGE).value
+    if judge_total is not None and str(judge_total).upper().startswith("=SUM"):
+        bad.append(f"月累计行判定列（第 {COL_JUDGE} 列）被 SUM 覆盖：{judge_total}")
+
+    # 备注列在月累计行只上样式、不写值；被 SUM 写进来就说明列号算错了
+    note_total = ws.cell(row=r_total, column=COL_NOTE).value
+    if note_total is not None:
+        bad.append(f"月累计行备注列（第 {COL_NOTE} 列）应为空，实为：{note_total}")
+
+    for i in range(len(SHOPS)):
+        b = COL_FIRST + i * CPR
+        if ws.cell(row=5, column=b).value is None:
+            bad.append(f"第 {i + 1} 个店铺的列组（第 {b} 列）没有表头")
+
+    print(f"店铺数 {len(SHOPS)}　列布局 {COL_FIRST}~{NCOL}"
+          f"（判定 {COL_JUDGE} / 备注 {COL_NOTE}）")
+    if bad:
+        print(f"× 表结构自测失败 {len(bad)} 项：")
+        for b in bad[:10]:
+            print(f"    {b}")
+        return 1
+    print("√ 表结构自测通过（没有内容越过判定列）")
+    return 0
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+        sys.exit(selftest())
     sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else None))

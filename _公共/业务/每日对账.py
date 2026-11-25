@@ -496,7 +496,7 @@ def main():
         print("\n  按店铺累计：")
         for shop, g in sorted(gap_by_shop.items(), key=lambda x: -abs(x[1])):
             print(f"    {shop:13} {g:+,.2f}")
-        print("\n  下一步：python 账户核对.py  → 账户级定位缺口落在哪个账户、哪一天")
+        print("\n  下一步：python 排查.py <日期>  → 账户级定位缺口落在哪个账户、哪一天")
     elif judged == 0:
         # 没有一项能判定，绝不能报"通过"——那会把"库没导"误当"数据没问题"
         print("\n  ! 本次没有任何可判定的日期（库内数据还没覆盖到平台有数的日期）")
